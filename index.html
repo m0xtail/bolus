@@ -24,10 +24,25 @@
   .wrap { max-width: 480px; margin: 0 auto; }
   .header { margin-bottom: 1.75rem; }
   .header h1 { font-size: 14px; font-weight: 600; color: var(--text2); letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--mono); margin-bottom: 10px; }
+
+  /* CGM bar */
   .cgm-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); }
   .cgm-val { font-size: 32px; font-weight: 600; color: var(--text); font-family: var(--mono); }
-  .cgm-trend { font-size: 20px; }
-  .cgm-label { font-size: 13px; color: var(--text2); margin-left: auto; font-family: var(--mono); }
+  .cgm-trend { font-size: 22px; }
+  .cgm-right { margin-left: auto; text-align: right; }
+  .cgm-label { font-size: 12px; color: var(--text3); font-family: var(--mono); }
+  .cgm-age { font-size: 11px; color: var(--text3); font-family: var(--mono); margin-top: 2px; }
+
+  /* Setup banner */
+  .setup-banner { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 1rem; font-size: 13px; color: var(--text2); font-family: var(--mono); }
+  .setup-banner a { color: var(--text); }
+  .proxy-row { display: flex; gap: 8px; margin-top: 8px; }
+  .proxy-row input { flex: 1; padding: 7px 10px; font-size: 13px; font-family: var(--mono); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+  .proxy-row input:focus { outline: 2px solid var(--text2); outline-offset: 1px; }
+  .proxy-save { padding: 7px 14px; font-size: 13px; font-family: var(--mono); font-weight: 600; border: 1px solid var(--border2); border-radius: var(--radius); background: var(--text); color: var(--surface); cursor: pointer; white-space: nowrap; }
+  .proxy-save:hover { opacity: 0.85; }
+
+  /* Form card */
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1.5rem; }
   .field { margin-bottom: 16px; }
   .field label { display: block; font-size: 13px; font-weight: 600; color: var(--text2); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; font-family: var(--mono); }
@@ -46,7 +61,7 @@
     border: 1px solid var(--border); border-radius: var(--radius);
     background: var(--surface2); color: var(--text);
   }
-  .row input:focus { outline: 2px solid var(--text2); outline-offset: 1px; border-color: var(--border2); }
+  .row input:focus { outline: 2px solid var(--text2); outline-offset: 1px; }
   .row span { font-size: 15px; color: var(--text2); font-weight: 500; }
   .note-input {
     width: 100%; padding: 9px 12px; font-size: 15px; font-family: var(--sans);
@@ -63,6 +78,8 @@
   }
   .log-btn:hover { opacity: 0.85; }
   .log-btn:active { transform: scale(0.99); }
+
+  /* Log list */
   .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .section-label { font-size: 13px; font-weight: 600; color: var(--text2); letter-spacing: 0.08em; text-transform: uppercase; font-family: var(--mono); }
   .export-btn { font-size: 13px; color: var(--text2); background: none; border: none; cursor: pointer; font-family: var(--mono); text-decoration: underline; font-weight: 500; }
@@ -78,6 +95,7 @@
   .entry-del { font-size: 22px; color: var(--text3); cursor: pointer; padding: 4px 8px; line-height: 1; }
   .entry-del:hover { color: var(--text); }
   .empty { text-align: center; padding: 2.5rem 0; font-size: 15px; color: var(--text3); font-family: var(--mono); }
+
   .toast {
     position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
     background: var(--text); color: var(--surface); font-size: 14px; font-family: var(--mono); font-weight: 600;
@@ -91,17 +109,29 @@
 <div class="wrap">
   <div class="header">
     <h1>bolus log</h1>
+
     <div class="cgm-bar">
       <div class="cgm-val" id="cgmVal">—</div>
       <div class="cgm-trend" id="cgmTrend"></div>
-      <div class="cgm-label" id="cgmLabel">enter bg below</div>
+      <div class="cgm-right">
+        <div class="cgm-label" id="cgmLabel">no proxy configured</div>
+        <div class="cgm-age" id="cgmAge"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="setup-banner" id="setupBanner">
+    <strong>Dexcom proxy URL</strong> — paste your Render URL to enable live BG
+    <div class="proxy-row">
+      <input type="text" id="proxyInput" placeholder="https://your-app.onrender.com" />
+      <button class="proxy-save" onclick="saveProxy()">save</button>
     </div>
   </div>
 
   <div class="card">
     <div class="field">
       <label>Units</label>
-      <div class="quick-row" id="quickBtns">
+      <div class="quick-row">
         <button class="quick-btn" onclick="selectDose(1)">1</button>
         <button class="quick-btn" onclick="selectDose(2)">2</button>
         <button class="quick-btn" onclick="selectDose(3)">3</button>
@@ -144,13 +174,72 @@
 
 <script>
 const KEY = 'bolus_log_v1';
+const PROXY_KEY = 'dexcom_proxy_url';
 let selectedDose = null;
+let pollTimer = null;
+let lastFetch = null;
 
+// ── Storage ──────────────────────────────────────────────
 function getEntries() {
   try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e) { return []; }
 }
 function saveEntries(e) { localStorage.setItem(KEY, JSON.stringify(e)); }
 
+// ── Proxy setup ──────────────────────────────────────────
+function getProxy() { return localStorage.getItem(PROXY_KEY) || ''; }
+
+function saveProxy() {
+  let url = document.getElementById('proxyInput').value.trim().replace(/\/$/, '');
+  if (!url) return;
+  if (!url.startsWith('http')) url = 'https://' + url;
+  localStorage.setItem(PROXY_KEY, url);
+  document.getElementById('setupBanner').style.display = 'none';
+  showToast('proxy saved');
+  startPolling();
+}
+
+function initProxy() {
+  const url = getProxy();
+  if (url) {
+    document.getElementById('proxyInput').value = url;
+    document.getElementById('setupBanner').style.display = 'none';
+    startPolling();
+  }
+}
+
+// ── Dexcom polling ───────────────────────────────────────
+async function fetchBG() {
+  const proxy = getProxy();
+  if (!proxy) return;
+  try {
+    const r = await fetch(proxy + '/bg', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    lastFetch = Date.now();
+    document.getElementById('cgmVal').textContent = data.value;
+    document.getElementById('cgmTrend').textContent = data.trend;
+    document.getElementById('cgmLabel').textContent = 'mg/dL · live';
+    document.getElementById('bgInput').value = data.value;
+    updateAge();
+  } catch(e) {
+    document.getElementById('cgmLabel').textContent = 'fetch failed';
+  }
+}
+
+function updateAge() {
+  if (!lastFetch) return;
+  const mins = Math.round((Date.now() - lastFetch) / 60000);
+  document.getElementById('cgmAge').textContent = mins < 1 ? 'just now' : mins + 'm ago';
+}
+
+function startPolling() {
+  fetchBG();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(fetchBG, 60000);
+  setInterval(updateAge, 30000);
+}
+
+// ── Dose selection ───────────────────────────────────────
 function selectDose(v) {
   selectedDose = v;
   document.getElementById('doseInput').value = v;
@@ -164,15 +253,7 @@ document.getElementById('doseInput').addEventListener('input', function() {
     b.classList.toggle('active', parseFloat(b.textContent) === selectedDose));
 });
 
-document.getElementById('bgInput').addEventListener('input', function() {
-  const v = parseFloat(this.value);
-  if (isNaN(v)) return;
-  document.getElementById('cgmVal').textContent = v;
-  document.getElementById('cgmLabel').textContent = 'mg/dL';
-  const trend = v < 70 ? '↓↓' : v < 80 ? '↓' : v <= 180 ? '→' : v <= 250 ? '↑' : '↑↑';
-  document.getElementById('cgmTrend').textContent = trend;
-});
-
+// ── Logging ──────────────────────────────────────────────
 function logDose() {
   const dose = parseFloat(document.getElementById('doseInput').value);
   if (!dose || dose <= 0) { showToast('enter a dose'); return; }
@@ -204,13 +285,11 @@ function render() {
   const todayEntries = entries.filter(e => new Date(e.ts).toDateString() === today);
   const list = document.getElementById('entryList');
   const totalEl = document.getElementById('dailyTotal');
-
   if (!todayEntries.length) {
     list.innerHTML = '<div class="empty">no entries yet today</div>';
     totalEl.textContent = '';
     return;
   }
-
   const total = todayEntries.reduce((s, e) => s + e.dose, 0);
   totalEl.textContent = total.toFixed(1) + 'u total today';
   list.innerHTML = todayEntries.map(e => `
@@ -224,6 +303,7 @@ function render() {
     </div>`).join('');
 }
 
+// ── Export ───────────────────────────────────────────────
 function exportCSV() {
   const entries = getEntries();
   if (!entries.length) { showToast('nothing to export'); return; }
@@ -237,6 +317,7 @@ function exportCSV() {
   showToast('exported');
 }
 
+// ── Toast ────────────────────────────────────────────────
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -244,6 +325,8 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 1800);
 }
 
+// ── Init ─────────────────────────────────────────────────
+initProxy();
 render();
 </script>
 </body>
