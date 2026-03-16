@@ -96,6 +96,15 @@
   .entry-del:hover { color: var(--text); }
   .empty { text-align: center; padding: 2.5rem 0; font-size: 15px; color: var(--text3); font-family: var(--mono); }
 
+  /* IOB bar */
+  .iob-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); margin-top: 8px; }
+  .iob-val { font-size: 32px; font-weight: 600; color: var(--text); font-family: var(--mono); }
+  .iob-unit { font-size: 14px; font-weight: 500; color: var(--text2); align-self: flex-end; margin-bottom: 5px; }
+  .iob-right { margin-left: auto; text-align: right; }
+  .iob-label { font-size: 12px; color: var(--text3); font-family: var(--mono); }
+  .iob-track { width: 80px; height: 4px; background: var(--surface2); border-radius: 2px; margin-top: 6px; margin-left: auto; }
+  .iob-fill { height: 4px; background: var(--text2); border-radius: 2px; transition: width 0.5s; }
+
   .toast {
     position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
     background: var(--text); color: var(--surface); font-size: 14px; font-family: var(--mono); font-weight: 600;
@@ -120,6 +129,14 @@
     </div>
   </div>
 
+    <div class="iob-bar">
+      <div class="iob-val" id="iobVal">0.0</div>
+      <div class="iob-unit">u IOB</div>
+      <div class="iob-right">
+        <div class="iob-label">insulin on board</div>
+        <div class="iob-track"><div class="iob-fill" id="iobFill" style="width:0%"></div></div>
+      </div>
+    </div>
 
   <div class="card">
     <div class="field">
@@ -176,6 +193,44 @@ function getEntries() {
   try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e) { return []; }
 }
 function saveEntries(e) { localStorage.setItem(KEY, JSON.stringify(e)); }
+
+
+// ── IOB calculation (Novolog: onset 15min, peak 75min, duration 195min) ──
+const ONSET_MIN = 15;
+const PEAK_MIN = 75;
+const DURATION_MIN = 195;
+
+function doseIOB(dose, ageMin) {
+  if (ageMin < 0) return 0;
+  if (ageMin >= DURATION_MIN) return 0;
+  if (ageMin < ONSET_MIN) {
+    // ramping up
+    return dose * (ageMin / ONSET_MIN);
+  }
+  if (ageMin < PEAK_MIN) {
+    // at peak — full dose still active
+    return dose;
+  }
+  // linear decay from peak to zero
+  const decayProgress = (ageMin - PEAK_MIN) / (DURATION_MIN - PEAK_MIN);
+  return dose * (1 - decayProgress);
+}
+
+function calcIOB() {
+  const entries = getEntries();
+  const now = Date.now();
+  let total = 0;
+  let maxPossible = 0;
+  entries.forEach(e => {
+    const ageMin = (now - new Date(e.ts).getTime()) / 60000;
+    total += doseIOB(e.dose, ageMin);
+    maxPossible += e.dose;
+  });
+  const iobEl = document.getElementById('iobVal');
+  const fillEl = document.getElementById('iobFill');
+  if (iobEl) iobEl.textContent = total.toFixed(1);
+  if (fillEl) fillEl.style.width = maxPossible > 0 ? Math.min(100, (total / maxPossible) * 100).toFixed(1) + '%' : '0%';
+}
 
 // ── Proxy setup ──────────────────────────────────────────
 const PROXY_URL = 'https://dexcom-proxy-py.onrender.com';
@@ -245,12 +300,14 @@ function logDose() {
   selectedDose = null;
   document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('active'));
   render();
+  calcIOB();
   showToast(dose + 'u logged');
 }
 
 function deleteEntry(id) {
   saveEntries(getEntries().filter(e => e.id !== id));
   render();
+  calcIOB();
 }
 
 function fmt(iso) {
@@ -306,6 +363,8 @@ function showToast(msg) {
 // ── Init ─────────────────────────────────────────────────
 initProxy();
 render();
+calcIOB();
+setInterval(calcIOB, 30000);
 </script>
 </body>
 </html>
