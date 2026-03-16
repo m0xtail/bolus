@@ -120,13 +120,6 @@
     </div>
   </div>
 
-  <div class="setup-banner" id="setupBanner">
-    <strong>Dexcom proxy URL</strong> — paste your Render URL to enable live BG
-    <div class="proxy-row">
-      <input type="text" id="proxyInput" placeholder="https://your-app.onrender.com" />
-      <button class="proxy-save" onclick="saveProxy()">save</button>
-    </div>
-  </div>
 
   <div class="card">
     <div class="field">
@@ -174,7 +167,6 @@
 
 <script>
 const KEY = 'bolus_log_v1';
-const PROXY_KEY = 'dexcom_proxy_url';
 let selectedDose = null;
 let pollTimer = null;
 let lastFetch = null;
@@ -186,25 +178,11 @@ function getEntries() {
 function saveEntries(e) { localStorage.setItem(KEY, JSON.stringify(e)); }
 
 // ── Proxy setup ──────────────────────────────────────────
-function getProxy() { return localStorage.getItem(PROXY_KEY) || ''; }
-
-function saveProxy() {
-  let url = document.getElementById('proxyInput').value.trim().replace(/\/$/, '');
-  if (!url) return;
-  if (!url.startsWith('http')) url = 'https://' + url;
-  localStorage.setItem(PROXY_KEY, url);
-  document.getElementById('setupBanner').style.display = 'none';
-  showToast('proxy saved');
-  startPolling();
-}
+const PROXY_URL = 'https://dexcom-proxy.onrender.com';
+function getProxy() { return PROXY_URL; }
 
 function initProxy() {
-  const url = getProxy();
-  if (url) {
-    document.getElementById('proxyInput').value = url;
-    document.getElementById('setupBanner').style.display = 'none';
-    startPolling();
-  }
+  startPolling();
 }
 
 // ── Dexcom polling ───────────────────────────────────────
