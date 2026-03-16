@@ -183,44 +183,19 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const KEY = 'bolus_log_v1';
-let selectedDose = null;
-let pollTimer = null;
-let lastFetch = null;
+const PROXY = 'https://dexcom-proxy-py.onrender.com';
 
-// ── Storage ──────────────────────────────────────────────
-function getEntries() {
-  try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e) { return []; }
-}
-function saveEntries(e) { localStorage.setItem(KEY, JSON.stringify(e)); }
-
-
-// ── IOB calculation (Novolog: onset 15min, peak 75min, duration 195min) ──
-const ONSET_MIN = 15;
-const PEAK_MIN = 75;
-const DURATION_MIN = 195;
-
+// ── IOB calculation (Novolog: peak 75min, duration 195min) ──
+// Full dose counted immediately, linear decay from peak to zero
+const PEAK_MIN = 75, DURATION_MIN = 195;
 function doseIOB(dose, ageMin) {
-  if (ageMin < 0) return 0;
-  if (ageMin >= DURATION_MIN) return 0;
-  if (ageMin < ONSET_MIN) {
-    // ramping up
-    return dose * (ageMin / ONSET_MIN);
-  }
-  if (ageMin < PEAK_MIN) {
-    // at peak — full dose still active
-    return dose;
-  }
-  // linear decay from peak to zero
-  const decayProgress = (ageMin - PEAK_MIN) / (DURATION_MIN - PEAK_MIN);
-  return dose * (1 - decayProgress);
+  if (ageMin < 0 || ageMin >= DURATION_MIN) return 0;
+  if (ageMin < PEAK_MIN) return dose;
+  return dose * (1 - (ageMin - PEAK_MIN) / (DURATION_MIN - PEAK_MIN));
 }
-
-function calcIOB() {
-  const entries = getEntries();
+function calcIOB(entries) {
   const now = Date.now();
-  let total = 0;
-  let maxPossible = 0;
+  let total = 0, maxPossible = 0;
   entries.forEach(e => {
     const ageMin = (now - new Date(e.ts).getTime()) / 60000;
     total += doseIOB(e.dose, ageMin);
@@ -232,20 +207,41 @@ function calcIOB() {
   if (fillEl) fillEl.style.width = maxPossible > 0 ? Math.min(100, (total / maxPossible) * 100).toFixed(1) + '%' : '0%';
 }
 
-// ── Proxy setup ──────────────────────────────────────────
-const PROXY_URL = 'https://dexcom-proxy-py.onrender.com';
-function getProxy() { return PROXY_URL; }
+// ── State ─────────────────────────────────────────────────
+let entries = [];
+let selectedDose = null;
+let pollTimer = null;
+let lastFetch = null;
 
-function initProxy() {
-  startPolling();
+// ── Server entry sync ─────────────────────────────────────
+async function loadEntries() {
+  try {
+    const r = await fetch(PROXY + '/entries', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    entries = await r.json();
+    render();
+    calcIOB(entries);
+  } catch(e) {
+    console.error('loadEntries failed:', e);
+  }
 }
 
-// ── Dexcom polling ───────────────────────────────────────
+async function saveEntry(entry) {
+  await fetch(PROXY + '/entries', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry)
+  });
+}
+
+async function removeEntry(id) {
+  await fetch(PROXY + '/entries/' + id, { method: 'DELETE' });
+}
+
+// ── Dexcom polling ────────────────────────────────────────
 async function fetchBG() {
-  const proxy = getProxy();
-  if (!proxy) return;
   try {
-    const r = await fetch(proxy + '/bg', { cache: 'no-store' });
+    const r = await fetch(PROXY + '/bg', { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     lastFetch = Date.now();
@@ -270,9 +266,10 @@ function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(fetchBG, 60000);
   setInterval(updateAge, 30000);
+  setInterval(() => calcIOB(entries), 30000);
 }
 
-// ── Dose selection ───────────────────────────────────────
+// ── Dose selection ────────────────────────────────────────
 function selectDose(v) {
   selectedDose = v;
   document.getElementById('doseInput').value = v;
@@ -286,28 +283,29 @@ document.getElementById('doseInput').addEventListener('input', function() {
     b.classList.toggle('active', parseFloat(b.textContent) === selectedDose));
 });
 
-// ── Logging ──────────────────────────────────────────────
-function logDose() {
+// ── Logging ───────────────────────────────────────────────
+async function logDose() {
   const dose = parseFloat(document.getElementById('doseInput').value);
   if (!dose || dose <= 0) { showToast('enter a dose'); return; }
   const bg = parseFloat(document.getElementById('bgInput').value) || null;
   const note = document.getElementById('noteInput').value.trim();
-  const entries = getEntries();
-  entries.unshift({ id: Date.now(), dose, bg, note, ts: new Date().toISOString() });
-  saveEntries(entries);
+  const entry = { id: Date.now(), dose, bg, note, ts: new Date().toISOString() };
+  entries.unshift(entry);
+  render();
+  calcIOB(entries);
   document.getElementById('doseInput').value = '';
   document.getElementById('noteInput').value = '';
   selectedDose = null;
   document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('active'));
-  render();
-  calcIOB();
   showToast(dose + 'u logged');
+  await saveEntry(entry);
 }
 
-function deleteEntry(id) {
-  saveEntries(getEntries().filter(e => e.id !== id));
+async function deleteEntry(id) {
+  entries = entries.filter(e => e.id !== id);
   render();
-  calcIOB();
+  calcIOB(entries);
+  await removeEntry(id);
 }
 
 function fmt(iso) {
@@ -315,7 +313,6 @@ function fmt(iso) {
 }
 
 function render() {
-  const entries = getEntries();
   const today = new Date().toDateString();
   const todayEntries = entries.filter(e => new Date(e.ts).toDateString() === today);
   const list = document.getElementById('entryList');
@@ -338,13 +335,13 @@ function render() {
     </div>`).join('');
 }
 
-// ── Export ───────────────────────────────────────────────
+// ── Export ────────────────────────────────────────────────
 function exportCSV() {
-  const entries = getEntries();
   if (!entries.length) { showToast('nothing to export'); return; }
   const rows = [['timestamp','dose_units','bg_mgdl','note'],
     ...entries.map(e => [e.ts, e.dose, e.bg || '', e.note || ''])];
-  const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
+  const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('
+');
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
   a.download = 'bolus_' + new Date().toISOString().slice(0,10) + '.csv';
@@ -352,7 +349,7 @@ function exportCSV() {
   showToast('exported');
 }
 
-// ── Toast ────────────────────────────────────────────────
+// ── Toast ─────────────────────────────────────────────────
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -360,11 +357,9 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 1800);
 }
 
-// ── Init ─────────────────────────────────────────────────
-initProxy();
-render();
-calcIOB();
-setInterval(calcIOB, 30000);
+// ── Init ──────────────────────────────────────────────────
+startPolling();
+loadEntries();
 </script>
 </body>
 </html>
