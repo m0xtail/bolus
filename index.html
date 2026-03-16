@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bolus Log</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --surface2: #f0efe9;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --text: #1a1a18;
+    --text2: #666660;
+    --text3: #aaa9a2;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --mono: 'Courier New', Courier, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111110;
+      --surface: #1c1c1a;
+      --surface2: #252522;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+      --text: #e8e7e0;
+      --text2: #888880;
+      --text3: #555550;
+    }
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; padding: 1.5rem 1rem 4rem; }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  .header { margin-bottom: 1.75rem; }
+  .header h1 { font-size: 13px; font-weight: 500; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--mono); margin-bottom: 10px; }
+  .cgm-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface); border-radius: var(--radius); border: 0.5px solid var(--border); }
+  .cgm-val { font-size: 28px; font-weight: 500; color: var(--text); font-family: var(--mono); }
+  .cgm-trend { font-size: 18px; }
+  .cgm-label { font-size: 12px; color: var(--text3); margin-left: auto; font-family: var(--mono); }
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1.5rem; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 7px; font-family: var(--mono); }
+  .quick-row { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; }
+  .quick-btn {
+    padding: 7px 14px; font-size: 15px; font-family: var(--mono);
+    border: 0.5px solid var(--border); border-radius: var(--radius);
+    background: var(--surface2); color: var(--text); cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  .quick-btn:hover { background: var(--bg); border-color: var(--border2); }
+  .quick-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row input {
+    width: 90px; padding: 7px 10px; font-size: 15px; font-family: var(--mono);
+    border: 0.5px solid var(--border); border-radius: var(--radius);
+    background: var(--surface2); color: var(--text);
+  }
+  .row input:focus { outline: none; border-color: var(--border2); }
+  .row span { font-size: 13px; color: var(--text2); }
+  .note-input {
+    width: 100%; padding: 8px 10px; font-size: 13px; font-family: var(--sans);
+    border: 0.5px solid var(--border); border-radius: var(--radius);
+    background: var(--surface2); color: var(--text);
+    resize: none; height: 52px;
+  }
+  .note-input:focus { outline: none; border-color: var(--border2); }
+  .log-btn {
+    width: 100%; padding: 10px; font-size: 14px; font-family: var(--mono); font-weight: 500;
+    border: 0.5px solid var(--border2); border-radius: var(--radius);
+    background: var(--surface2); color: var(--text); cursor: pointer;
+    letter-spacing: 0.05em; transition: background 0.1s;
+  }
+  .log-btn:hover { background: var(--bg); }
+  .log-btn:active { transform: scale(0.99); }
+  .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .section-label { font-size: 11px; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; font-family: var(--mono); }
+  .export-btn { font-size: 11px; color: var(--text3); background: none; border: none; cursor: pointer; font-family: var(--mono); letter-spacing: 0.05em; text-decoration: underline; }
+  .export-btn:hover { color: var(--text2); }
+  .daily-total { font-size: 12px; color: var(--text3); font-family: var(--mono); margin-bottom: 10px; }
+  .entry { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 0.5px solid var(--border); }
+  .entry:last-child { border-bottom: none; }
+  .entry-dose { font-size: 20px; font-weight: 500; color: var(--text); min-width: 54px; font-family: var(--mono); }
+  .entry-dose span { font-size: 12px; font-weight: 400; color: var(--text2); }
+  .entry-meta { flex: 1; }
+  .entry-time { font-size: 12px; color: var(--text2); font-family: var(--mono); }
+  .entry-note { font-size: 12px; color: var(--text3); font-style: italic; margin-top: 2px; }
+  .entry-del { font-size: 18px; color: var(--text3); cursor: pointer; padding: 4px 6px; line-height: 1; }
+  .entry-del:hover { color: var(--text); }
+  .empty { text-align: center; padding: 2.5rem 0; font-size: 13px; color: var(--text3); font-family: var(--mono); }
+  .toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: var(--bg); font-size: 13px; font-family: var(--mono);
+    padding: 8px 20px; border-radius: var(--radius); opacity: 0;
+    transition: opacity 0.2s; pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>bolus log</h1>
+    <div class="cgm-bar">
+      <div class="cgm-val" id="cgmVal">—</div>
+      <div class="cgm-trend" id="cgmTrend"></div>
+      <div class="cgm-label" id="cgmLabel">enter bg below</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="field">
+      <label>Units</label>
+      <div class="quick-row" id="quickBtns">
+        <button class="quick-btn" onclick="selectDose(1)">1</button>
+        <button class="quick-btn" onclick="selectDose(2)">2</button>
+        <button class="quick-btn" onclick="selectDose(3)">3</button>
+        <button class="quick-btn" onclick="selectDose(4)">4</button>
+        <button class="quick-btn" onclick="selectDose(5)">5</button>
+        <button class="quick-btn" onclick="selectDose(6)">6</button>
+        <button class="quick-btn" onclick="selectDose(8)">8</button>
+        <button class="quick-btn" onclick="selectDose(10)">10</button>
+      </div>
+      <div class="row">
+        <input type="number" id="doseInput" min="0.5" max="50" step="0.5" placeholder="—" />
+        <span>units</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Blood glucose (mg/dL)</label>
+      <div class="row">
+        <input type="number" id="bgInput" min="40" max="400" step="1" placeholder="—" />
+        <span>mg/dL</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Note (optional)</label>
+      <textarea class="note-input" id="noteInput" placeholder="meal, correction, etc."></textarea>
+    </div>
+    <button class="log-btn" onclick="logDose()">+ log bolus</button>
+  </div>
+
+  <div>
+    <div class="list-header">
+      <div class="section-label">today</div>
+      <button class="export-btn" onclick="exportCSV()">export csv</button>
+    </div>
+    <div class="daily-total" id="dailyTotal"></div>
+    <div class="card" style="padding: 0 1.25rem;" id="entryList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const KEY = 'bolus_log_v1';
+let selectedDose = null;
+
+function getEntries() {
+  try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e) { return []; }
+}
+function saveEntries(e) { localStorage.setItem(KEY, JSON.stringify(e)); }
+
+function selectDose(v) {
+  selectedDose = v;
+  document.getElementById('doseInput').value = v;
+  document.querySelectorAll('.quick-btn').forEach(b =>
+    b.classList.toggle('active', parseFloat(b.textContent) === v));
+}
+
+document.getElementById('doseInput').addEventListener('input', function() {
+  selectedDose = parseFloat(this.value) || null;
+  document.querySelectorAll('.quick-btn').forEach(b =>
+    b.classList.toggle('active', parseFloat(b.textContent) === selectedDose));
+});
+
+document.getElementById('bgInput').addEventListener('input', function() {
+  const v = parseFloat(this.value);
+  if (isNaN(v)) return;
+  document.getElementById('cgmVal').textContent = v;
+  document.getElementById('cgmLabel').textContent = 'mg/dL';
+  const trend = v < 70 ? '↓↓' : v < 80 ? '↓' : v <= 180 ? '→' : v <= 250 ? '↑' : '↑↑';
+  document.getElementById('cgmTrend').textContent = trend;
+});
+
+function logDose() {
+  const dose = parseFloat(document.getElementById('doseInput').value);
+  if (!dose || dose <= 0) { showToast('enter a dose'); return; }
+  const bg = parseFloat(document.getElementById('bgInput').value) || null;
+  const note = document.getElementById('noteInput').value.trim();
+  const entries = getEntries();
+  entries.unshift({ id: Date.now(), dose, bg, note, ts: new Date().toISOString() });
+  saveEntries(entries);
+  document.getElementById('doseInput').value = '';
+  document.getElementById('noteInput').value = '';
+  selectedDose = null;
+  document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('active'));
+  render();
+  showToast(dose + 'u logged');
+}
+
+function deleteEntry(id) {
+  saveEntries(getEntries().filter(e => e.id !== id));
+  render();
+}
+
+function fmt(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function render() {
+  const entries = getEntries();
+  const today = new Date().toDateString();
+  const todayEntries = entries.filter(e => new Date(e.ts).toDateString() === today);
+  const list = document.getElementById('entryList');
+  const totalEl = document.getElementById('dailyTotal');
+
+  if (!todayEntries.length) {
+    list.innerHTML = '<div class="empty">no entries yet today</div>';
+    totalEl.textContent = '';
+    return;
+  }
+
+  const total = todayEntries.reduce((s, e) => s + e.dose, 0);
+  totalEl.textContent = total.toFixed(1) + 'u total today';
+  list.innerHTML = todayEntries.map(e => `
+    <div class="entry">
+      <div class="entry-dose">${e.dose}<span>u</span></div>
+      <div class="entry-meta">
+        <div class="entry-time">${fmt(e.ts)}${e.bg ? ' &nbsp;·&nbsp; ' + e.bg + ' mg/dL' : ''}</div>
+        ${e.note ? '<div class="entry-note">' + e.note + '</div>' : ''}
+      </div>
+      <span class="entry-del" onclick="deleteEntry(${e.id})">&times;</span>
+    </div>`).join('');
+}
+
+function exportCSV() {
+  const entries = getEntries();
+  if (!entries.length) { showToast('nothing to export'); return; }
+  const rows = [['timestamp','dose_units','bg_mgdl','note'],
+    ...entries.map(e => [e.ts, e.dose, e.bg || '', e.note || ''])];
+  const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = 'bolus_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  showToast('exported');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+render();
+</script>
+</body>
+</html>
