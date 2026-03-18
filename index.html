@@ -193,11 +193,20 @@ function doseIOB(dose, ageMin) {
   if (ageMin < PEAK_MIN) return dose;
   return dose * (1 - (ageMin - PEAK_MIN) / (DURATION_MIN - PEAK_MIN));
 }
-function calcIOB(entries) {
+function parseTS(ts) {
+  // Ensure timestamp is treated as UTC if no timezone info present
+  if (!ts) return NaN;
+  const s = ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z';
+  return new Date(s).getTime();
+}
+
+function calcIOB() {
   const now = Date.now();
   let total = 0, maxPossible = 0;
   entries.forEach(e => {
-    const ageMin = (now - new Date(e.ts).getTime()) / 60000;
+    const t = parseTS(e.ts);
+    if (isNaN(t)) return;
+    const ageMin = (now - t) / 60000;
     total += doseIOB(e.dose, ageMin);
     maxPossible += e.dose;
   });
@@ -220,7 +229,7 @@ async function loadEntries() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     entries = await r.json();
     render();
-    calcIOB(entries);
+    calcIOB();
   } catch(e) {
     console.error('loadEntries failed:', e);
   }
@@ -266,7 +275,7 @@ function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(fetchBG, 60000);
   setInterval(updateAge, 30000);
-  setInterval(() => calcIOB(entries), 30000);
+  setInterval(() => calcIOB(), 30000);
 }
 
 // ── Dose selection ────────────────────────────────────────
@@ -292,7 +301,7 @@ async function logDose() {
   const entry = { id: Date.now(), dose, bg, note, ts: new Date().toISOString() };
   entries.unshift(entry);
   render();
-  calcIOB(entries);
+  calcIOB();
   document.getElementById('doseInput').value = '';
   document.getElementById('noteInput').value = '';
   selectedDose = null;
@@ -304,7 +313,7 @@ async function logDose() {
 async function deleteEntry(id) {
   entries = entries.filter(e => e.id !== id);
   render();
-  calcIOB(entries);
+  calcIOB();
   await removeEntry(id);
 }
 
