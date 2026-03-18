@@ -70,6 +70,15 @@
     resize: none; height: 56px;
   }
   .note-input:focus { outline: 2px solid var(--text2); outline-offset: 1px; }
+  .time-row { display: flex; align-items: center; gap: 10px; }
+  .time-row input[type="time"] {
+    padding: 9px 12px; font-size: 15px; font-family: var(--mono); font-weight: 500;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface2); color: var(--text); width: 130px;
+  }
+  .time-row input[type="time"]:focus { outline: 2px solid var(--text2); outline-offset: 1px; }
+  .time-now { font-size: 12px; color: var(--text3); font-family: var(--mono); cursor: pointer; text-decoration: underline; }
+  .time-now:hover { color: var(--text2); }
   .log-btn {
     width: 100%; padding: 13px; font-size: 16px; font-family: var(--mono); font-weight: 600;
     border: 1.5px solid var(--border2); border-radius: var(--radius);
@@ -166,6 +175,13 @@
     <div class="field">
       <label>Note (optional)</label>
       <textarea class="note-input" id="noteInput" placeholder="meal, correction, etc."></textarea>
+    </div>
+    <div class="field">
+      <label>Time (defaults to now)</label>
+      <div class="time-row">
+        <input type="time" id="timeInput" />
+        <span class="time-now" onclick="resetTime()">now</span>
+      </div>
     </div>
     <button class="log-btn" onclick="logDose()">+ log bolus</button>
   </div>
@@ -304,17 +320,40 @@ document.getElementById('doseInput').addEventListener('input', function() {
 });
 
 // ── Logging ───────────────────────────────────────────────
+function resetTime() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  document.getElementById('timeInput').value = hh + ':' + mm;
+}
+
 async function logDose() {
   const dose = parseFloat(document.getElementById('doseInput').value);
   if (!dose || dose <= 0) { showToast('enter a dose'); return; }
   const bg = parseFloat(document.getElementById('bgInput').value) || null;
   const note = document.getElementById('noteInput').value.trim();
-  const entry = { id: Date.now(), dose, bg, note, ts: new Date().toISOString() };
+  
+  // Build timestamp from time input, defaulting to now
+  let ts;
+  const timeVal = document.getElementById('timeInput').value;
+  if (timeVal) {
+    const [hh, mm] = timeVal.split(':').map(Number);
+    const d = new Date();
+    d.setHours(hh, mm, 0, 0);
+    // If the time is in the future, assume it was yesterday
+    if (d > new Date()) d.setDate(d.getDate() - 1);
+    ts = d.toISOString();
+  } else {
+    ts = new Date().toISOString();
+  }
+  
+  const entry = { id: Date.now(), dose, bg, note, ts };
   entries.unshift(entry);
   render();
   calcIOB();
   document.getElementById('doseInput').value = '';
   document.getElementById('noteInput').value = '';
+  resetTime();
   selectedDose = null;
   document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('active'));
   showToast(dose + 'u logged');
@@ -377,6 +416,7 @@ function showToast(msg) {
 }
 
 // ── Init ──────────────────────────────────────────────────
+resetTime();
 startPolling();
 loadEntries();
 </script>
